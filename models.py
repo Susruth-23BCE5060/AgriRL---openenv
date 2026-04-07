@@ -80,6 +80,19 @@ class AgricultureState(BaseModel):
 
 
 # -----------------------------
+# Observation Model
+# -----------------------------
+class AgricultureObservation(AgricultureState):
+    """
+    Observation returned to the agent.
+
+    For this benchmark, observation mirrors the current environment state.
+    This keeps OpenEnv schema compatibility clean and explicit.
+    """
+    pass
+
+
+# -----------------------------
 # Action Model
 # -----------------------------
 class AgricultureAction(BaseModel):

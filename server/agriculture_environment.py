@@ -14,8 +14,13 @@ soil, nutrient, climate, and groundwater conditions to maximize reward.
 import random
 from typing import Dict, Tuple
 
-from models import AgricultureAction, AgricultureInfo, AgricultureState, AgricultureTaskConfig
-
+from models import (
+    AgricultureAction,
+    AgricultureInfo,
+    AgricultureObservation,
+    AgricultureState,
+    AgricultureTaskConfig,
+)
 
 # =========================================================
 # Task Definitions
@@ -112,7 +117,7 @@ class AgricultureEnvironment:
     # -----------------------------------------------------
     # Public API
     # -----------------------------------------------------
-    def reset(self) -> AgricultureState:
+    def reset(self) -> AgricultureObservation:
         self._state = self._generate_initial_state()
         return self._state
 
@@ -121,7 +126,7 @@ class AgricultureEnvironment:
             raise RuntimeError("Environment not initialized. Call reset() first.")
         return self._state
 
-    def step(self, action: AgricultureAction) -> Tuple[AgricultureState, float, bool, AgricultureInfo]:
+    def step(self, action: AgricultureAction) -> Tuple[AgricultureObservation, float, bool, AgricultureInfo]:
         if self._state is None:
             raise RuntimeError("Environment not initialized. Call reset() first.")
 
@@ -146,7 +151,7 @@ class AgricultureEnvironment:
             explanation=explanation,
         )
 
-        return self._state, round(reward, 4), done, info
+        return self._to_observation(self._state), round(reward, 4), done, info
 
     # -----------------------------------------------------
     # State Generation
@@ -693,3 +698,6 @@ class AgricultureEnvironment:
     @staticmethod
     def _clamp(x: float, low: float = 0.0, high: float = 1.0) -> float:
         return max(low, min(high, x))
+    
+    def _to_observation(self, state: AgricultureState) -> AgricultureObservation:
+        return AgricultureObservation(**state.model_dump())
