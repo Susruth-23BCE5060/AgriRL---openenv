@@ -16,238 +16,197 @@ STDOUT FORMAT
     [END]   success=<true|false> steps=<n> score=<score> rewards=<r1,r2,...,rn>
 """
 
-import asyncio
-import os
-import re
-import textwrap
-import requests
-from typing import List, Optional
+import argparse
+import random
 
-from client import AgricultureAction, AgricultureEnv
-from dotenv import load_dotenv
-
-load_dotenv()
-
-# =========================
-# ENV / CONFIG
-# =========================
-
-HF_TOKEN = os.getenv("HF_TOKEN")
-IMAGE_NAME = os.getenv("IMAGE_NAME")
-
-API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
-MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
+from server.agriculture_environment import AgricultureEnvironment
+from models import AgricultureAction
 
 
-TASK_NAME = os.getenv("AGRICULTURE_TASK", "crop-selection")
-BENCHMARK = os.getenv("AGRICULTURE_BENCHMARK", "agriculture")
-
-MAX_STEPS = 3
-TEMPERATURE = 0.3
-MAX_TOKENS = 80
-SUCCESS_SCORE_THRESHOLD = 0.55
-
-# Approx max reward ~ 54 per step
-MAX_TOTAL_REWARD = MAX_STEPS * 54.0
-
-if not HF_TOKEN:
-    raise ValueError("HF_TOKEN is not set. Please set your Hugging Face token.")
-
-if not IMAGE_NAME:
-    raise ValueError("IMAGE_NAME is not set. Please set your Docker image name.")
-
-# =========================
-# PROMPT
-# =========================
-
-SYSTEM_PROMPT = textwrap.dedent(
-    """
-    You are an agricultural decision-making agent optimizing for maximum reward.
-
-    You will receive a farm state containing:
-    - soil type
-    - nitrogen, phosphorus, potassium
-    - pH
-    - rainfall
-    - temperature
-    - humidity
-    - groundwater
-    - season
-
-    Your task is to choose the SINGLE best crop for highest agricultural suitability and sustainability.
-
-    Crop guidance:
-    - rice: best for high rainfall, high humidity, water-rich conditions
-    - wheat: best for cool/moderate temperature and moderate rainfall
-    - maize: best for balanced nutrients and moderate climate
-    - cotton: best in black soil, warm temperatures, moderate water
-    - groundnut: best in sandy/loamy soil, lower pH, moderate rainfall
-    - pulses: best in lower nitrogen soil and dry/moderate climate
-    - millet: best for dry, low-rainfall, hardy conditions
-    - sugarcane: best for high water, warm temperature, fertile soil
-
-    Important:
-    - Prioritize matching rainfall, season, soil type, and pH strongly.
-    - Avoid unsuitable crops even if they are generally popular.
-    - Choose only one crop.
-
-    Reply with ONLY one crop name from:
-    rice, wheat, maize, cotton, groundnut, pulses, millet, sugarcane
-
-    No explanation.
-    """
-).strip()
-
-# =========================
-# LOGGING
-# =========================
-
-def log_start(task: str, env: str, model: str) -> None:
-    print(f"[START] task={task} env={env} model={model}", flush=True)
+# =========================================================
+# Action Spaces
+# =========================================================
+CROPS = ["rice", "wheat", "maize", "cotton", "millet", "sugarcane", "pulses"]
+IRRIGATION = ["drip", "sprinkler", "flood", "rainfed"]
+FERTILIZERS = ["nitrogen-rich", "balanced-npk", "organic-compost", "phosphorus-boost"]
+PEST_CONTROL = ["none", "integrated-pest-management", "chemical-pesticide", "biological-control"]
+STRATEGIES = ["groundwater-conservation", "maximize-yield", "low-cost-farming", "soil-restoration"]
 
 
-def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
-    error_val = error if error else "null"
-    done_val = str(done).lower()
-    print(
-        f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}",
-        flush=True,
-    )
+# =========================================================
+# Heuristic Baseline Policy
+# =========================================================
+def choose_action_heuristic(state) -> str:
+    task = state.task
+    step = state.step_index
 
-
-def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
-    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
-
-# =========================
-# MODEL HELPERS
-# =========================
-
-def build_user_prompt(obs) -> str:
-    return textwrap.dedent(
-        f"""
-        Current farm state:
-        soil_type: {obs.soil_type}
-        nitrogen: {obs.nitrogen}
-        phosphorus: {obs.phosphorus}
-        potassium: {obs.potassium}
-        ph: {obs.ph}
-        rainfall: {obs.rainfall}
-        temperature: {obs.temperature}
-        humidity: {obs.humidity}
-        groundwater: {obs.groundwater}
-        season: {obs.season}
-
-        Choose the best crop.
-        """
-    ).strip()
-
-
-def query_huggingface(prompt: str) -> str:
-    headers = {
-        "Authorization": f"Bearer {HF_TOKEN}",
-        "Content-Type": "application/json"
+    decision_sequence = {
+        "crop-selection-easy": ["crop"],
+        "farm-planning-medium": ["crop", "irrigation", "fertilizer"],
+        "sustainable-farming-hard": ["crop", "irrigation", "fertilizer", "pest_control", "strategy"],
     }
 
-    payload = {
-        "model": MODEL_NAME,
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt}
-        ],
-        "temperature": TEMPERATURE,
-        "max_tokens": MAX_TOKENS,
-        "stream": False
+    decision_type = decision_sequence[task][step]
+
+    if decision_type == "crop":
+        if state.soil_type == "clay" and state.groundwater > 0.6 and state.season == "kharif":
+            return "rice"
+        if state.soil_type == "black":
+            return "cotton"
+        if state.groundwater < 0.35 or state.rainfall < 0.35:
+            return "millet"
+        if state.soil_type == "alluvial" and state.season == "rabi":
+            return "wheat"
+        if state.nitrogen < 0.3:
+            return "pulses"
+        return "maize"
+
+    if decision_type == "irrigation":
+        if state.groundwater < 0.4:
+            return "drip"
+        if state.chosen_crop in ["rice", "sugarcane"]:
+            return "flood"
+        if state.chosen_crop in ["millet", "pulses"] and state.rainfall > 0.6:
+            return "rainfed"
+        return "sprinkler"
+
+    if decision_type == "fertilizer":
+        if state.nitrogen < 0.3:
+            return "nitrogen-rich"
+        if state.phosphorus < 0.3:
+            return "phosphorus-boost"
+        if state.soil_health < 0.45:
+            return "organic-compost"
+        return "balanced-npk"
+
+    if decision_type == "pest_control":
+        if state.pest_risk > 0.75:
+            return "chemical-pesticide"
+        if state.pest_risk > 0.45:
+            return "integrated-pest-management"
+        return "biological-control"
+
+    if decision_type == "strategy":
+        if state.groundwater < 0.35:
+            return "groundwater-conservation"
+        if state.soil_health < 0.4:
+            return "soil-restoration"
+        return "maximize-yield"
+
+    return "maize"
+
+
+def choose_action_random(state, rng: random.Random) -> str:
+    task = state.task
+    step = state.step_index
+
+    decision_sequence = {
+        "crop-selection-easy": ["crop"],
+        "farm-planning-medium": ["crop", "irrigation", "fertilizer"],
+        "sustainable-farming-hard": ["crop", "irrigation", "fertilizer", "pest_control", "strategy"],
     }
 
-    response = requests.post(
-        f"{API_BASE_URL}/chat/completions",
-        headers=headers,
-        json=payload,
-        timeout=60
-    )
+    decision_type = decision_sequence[task][step]
 
-    if response.status_code != 200:
-        raise RuntimeError(f"Hugging Face API Error {response.status_code}: {response.text}")
+    if decision_type == "crop":
+        return rng.choice(CROPS)
+    if decision_type == "irrigation":
+        return rng.choice(IRRIGATION)
+    if decision_type == "fertilizer":
+        return rng.choice(FERTILIZERS)
+    if decision_type == "pest_control":
+        return rng.choice(PEST_CONTROL)
+    if decision_type == "strategy":
+        return rng.choice(STRATEGIES)
 
-    result = response.json()
-
-    return result["choices"][0]["message"]["content"].strip()
-
-
-def extract_crop(text: str) -> str:
-    text = text.strip().lower()
-    crops = ["rice", "wheat", "maize", "cotton", "groundnut", "pulses", "millet", "sugarcane"]
-
-    for crop in crops:
-        if re.search(rf"\b{crop}\b", text):
-            return crop
-
-    return "millet"  # safe fallback
+    return "maize"
 
 
-def get_model_crop(obs) -> str:
-    user_prompt = build_user_prompt(obs)
+# =========================================================
+# Main OpenEnv Runner
+# =========================================================
+def main():
+    parser = argparse.ArgumentParser(description="OpenEnv Agriculture Inference Runner")
+    parser.add_argument("--task", type=str, required=True, choices=[
+        "crop-selection-easy",
+        "farm-planning-medium",
+        "sustainable-farming-hard",
+    ])
+    parser.add_argument("--policy", type=str, default="heuristic", choices=["heuristic", "random"])
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--model", type=str, default="heuristic-baseline")
+    parser.add_argument("--env", type=str, default="agriculture")
 
-    try:
-        raw_text = query_huggingface(user_prompt)
-        print(f"[DEBUG] Raw model output: {raw_text}", flush=True)
-        return extract_crop(raw_text)
-    except Exception as exc:
-        print(f"[DEBUG] Model request failed: {exc}", flush=True)
-        return "millet"
+    args = parser.parse_args()
 
-# =========================
-# MAIN LOOP
-# =========================
+    rng = random.Random(args.seed)
+    env = AgricultureEnvironment(task_name=args.task, seed=args.seed)
 
-async def main() -> None:
-    env = await AgricultureEnv.from_docker_image('agriculture_env')
+    state = env.reset()
 
-    rewards: List[float] = []
-    steps_taken = 0
-    score = 0.0
+    print(f"[START] task={args.task} env={args.env} model={args.model}")
+
+    done = False
+    step_num = 0
+    rewards = []
+    final_score = 0.0
     success = False
 
-    log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
+    while not done:
+        step_num += 1
+        error_msg = "null"
 
-    try:
-        result = await env.reset()
-        obs = result.observation
+        try:
+            if args.policy == "heuristic":
+                action_str = choose_action_heuristic(state)
+            else:
+                action_str = choose_action_random(state, rng)
 
-        for step in range(1, MAX_STEPS + 1):
-            if result.done:
-                break
-
-            crop = get_model_crop(obs)
-
-            result = await env.step(AgricultureAction(crop_name=crop))
-            obs = result.observation
-
-            reward = result.reward or 0.0
-            done = result.done
-            error = None
+            action = AgricultureAction(action=action_str)
+            next_state, reward, done, info = env.step(action)
 
             rewards.append(reward)
-            steps_taken = step
+            final_score = info.score
+            success = info.success
 
-            log_step(step=step, action=crop, reward=reward, done=done, error=error)
+            print(
+                f"[STEP] step={step_num} "
+                f"action={action_str} "
+                f"reward={reward:.2f} "
+                f"done={'true' if done else 'false'} "
+                f"error={error_msg}"
+            )
 
-            if done:
-                break
+            state = next_state
 
-        score = sum(rewards) / MAX_TOTAL_REWARD if MAX_TOTAL_REWARD > 0 else 0.0
-        score = min(max(score, 0.0), 1.0)
-        success = score >= SUCCESS_SCORE_THRESHOLD
-
-    finally:
-        try:
-            await env.close()
         except Exception as e:
-            print(f"[DEBUG] env.close() error (container cleanup): {e}", flush=True)
+            action_str = "invalid"
+            reward = 0.0
+            done = True
+            error_msg = str(e).replace("\n", " ")
 
-        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
+            print(
+                f"[STEP] step={step_num} "
+                f"action={action_str} "
+                f"reward={reward:.2f} "
+                f"done=true "
+                f"error={error_msg}"
+            )
+
+            success = False
+            final_score = 0.0
+            rewards.append(reward)
+            break
+
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+
+    print(
+        f"[END] success={'true' if success else 'false'} "
+        f"steps={step_num} "
+        f"score={final_score:.3f} "
+        f"rewards={rewards_str}"
+    )
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

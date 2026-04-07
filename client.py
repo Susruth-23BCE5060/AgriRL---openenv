@@ -4,67 +4,85 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""Agriculture Environment Client."""
+# Agriculture Environment Client
 
-from typing import Dict
+from typing import Dict, Any
 
 from openenv.core import EnvClient
 from openenv.core.client_types import StepResult
 from openenv.core.env_server.types import State
 
-from models import AgricultureAction, AgricultureObservation
+from models import AgricultureAction
 
 
-class AgricultureEnv(
-    EnvClient[AgricultureAction, AgricultureObservation, State]
-):
+class AgricultureEnvClient(EnvClient):
     """
-    Client for the Agriculture Environment.
+    Thin client wrapper around OpenEnv server for the agriculture environment.
     """
 
-    def _step_payload(self, action: AgricultureAction) -> Dict:
+    def parse_action(self, raw_action: str) -> AgricultureAction:
         """
-        Convert AgricultureAction to JSON payload for step message.
+        Convert model / agent text output into a typed AgricultureAction.
         """
-        return {
-            "crop_name": action.crop_name,
+        return AgricultureAction(action=raw_action.strip().lower())
+
+    def format_state_for_prompt(self, state: State) -> str:
+        """
+        Converts environment state into a readable prompt for LLM / debugging baseline.
+        """
+        data: Dict[str, Any] = state.data if hasattr(state, "data") else dict(state)
+
+        task = data.get("task", "unknown")
+        step_index = data.get("step_index", 0)
+        max_steps = data.get("max_steps", 1)
+
+        decision_sequence = {
+            "crop-selection-easy": ["crop"],
+            "farm-planning-medium": ["crop", "irrigation", "fertilizer"],
+            "sustainable-farming-hard": ["crop", "irrigation", "fertilizer", "pest_control", "strategy"],
         }
 
-    def _parse_result(self, payload: Dict) -> StepResult[AgricultureObservation]:
-        """
-        Parse server response into StepResult[AgricultureObservation].
-        """
-        obs_data = payload.get("observation", {})
+        current_decision = "unknown"
+        if task in decision_sequence and step_index < len(decision_sequence[task]):
+            current_decision = decision_sequence[task][step_index]
 
-        observation = AgricultureObservation(
-            soil_type=obs_data.get("soil_type", ""),
-            nitrogen=obs_data.get("nitrogen", 0),
-            phosphorus=obs_data.get("phosphorus", 0),
-            potassium=obs_data.get("potassium", 0),
-            ph=obs_data.get("ph", 7.0),
-            rainfall=obs_data.get("rainfall", 0),
-            temperature=obs_data.get("temperature", 0),
-            humidity=obs_data.get("humidity", 0),
-            groundwater=obs_data.get("groundwater", 0),
-            season=obs_data.get("season", ""),
-            chosen_crop=obs_data.get("chosen_crop", ""),
-            available_crops=obs_data.get("available_crops", []),
-            done=payload.get("done", False),
-            reward=payload.get("reward"),
-            metadata=obs_data.get("metadata", {}),
-        )
+        prompt = f"""
+You are an agriculture planning agent.
 
-        return StepResult(
-            observation=observation,
-            reward=payload.get("reward"),
-            done=payload.get("done", False),
-        )
+Task: {task}
+Current Step: {step_index + 1}/{max_steps}
+Decision Required: {current_decision}
 
-    def _parse_state(self, payload: Dict) -> State:
+Farm State:
+- Soil Type: {data.get("soil_type")}
+- Nitrogen: {data.get("nitrogen")}
+- Phosphorus: {data.get("phosphorus")}
+- Potassium: {data.get("potassium")}
+- Rainfall: {data.get("rainfall")}
+- Temperature: {data.get("temperature")}
+- Groundwater: {data.get("groundwater")}
+- Pest Risk: {data.get("pest_risk")}
+- Soil Health: {data.get("soil_health")}
+- Season: {data.get("season")}
+
+Choices already made:
+- Crop: {data.get("chosen_crop")}
+- Irrigation: {data.get("chosen_irrigation")}
+- Fertilizer: {data.get("chosen_fertilizer")}
+- Pest Control: {data.get("chosen_pest_control")}
+- Strategy: {data.get("chosen_strategy")}
+
+Respond with ONLY the best next action.
+No explanation.
+""".strip()
+
+        return prompt
+
+    def extract_score(self, result: StepResult) -> float:
         """
-        Parse server response into State object.
+        Extract normalized score from environment step result.
         """
-        return State(
-            episode_id=payload.get("episode_id"),
-            step_count=payload.get("step_count", 0),
-        )
+        try:
+            return float(result.info.get("score", result.reward))
+        except Exception:
+            return float(result.reward)

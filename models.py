@@ -27,42 +27,85 @@ The agriculture environment is a simple test environment that echoes back messag
 #     message_length: int = Field(default=0, description="Length of the echoed message")
 
 
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-#
-# This source code is licensed under the BSD-style license found in the
-# LICENSE file in the root directory of this source tree.
-
-"""
-Data models for the Agriculture Environment.
-
-This environment simulates crop selection under soil, nutrient, climate,
-and groundwater constraints.
-"""
-
-from openenv.core.env_server.types import Action, Observation
-from pydantic import Field
+from typing import Dict, List, Literal, Optional
+from pydantic import BaseModel, Field
 
 
-class AgricultureAction(Action):
-    """Action for the Agriculture environment - select a crop."""
+# -----------------------------
+# Core Environment State
+# -----------------------------
+class AgricultureState(BaseModel):
+    task: Literal[
+        "crop-selection-easy",
+        "farm-planning-medium",
+        "sustainable-farming-hard",
+    ]
 
-    crop_name: str = Field(..., description="Crop selected by the agent")
+    step_index: int = 0
+    max_steps: int = 1
+
+    # Farm / environmental features
+    soil_type: Literal["loamy", "clay", "sandy", "black", "alluvial"]
+    nitrogen: float = Field(..., ge=0.0, le=1.0)
+    phosphorus: float = Field(..., ge=0.0, le=1.0)
+    potassium: float = Field(..., ge=0.0, le=1.0)
+    rainfall: float = Field(..., ge=0.0, le=1.0)
+    temperature: float = Field(..., ge=0.0, le=1.0)
+    groundwater: float = Field(..., ge=0.0, le=1.0)
+    pest_risk: float = Field(..., ge=0.0, le=1.0)
+    soil_health: float = Field(..., ge=0.0, le=1.0)
+
+    season: Literal["kharif", "rabi", "zaid"]
+
+    # Decisions taken so far
+    chosen_crop: Optional[
+        Literal["rice", "wheat", "maize", "cotton", "millet", "sugarcane", "pulses"]
+    ] = None
+
+    chosen_irrigation: Optional[
+        Literal["drip", "sprinkler", "flood", "rainfed"]
+    ] = None
+
+    chosen_fertilizer: Optional[
+        Literal["nitrogen-rich", "balanced-npk", "organic-compost", "phosphorus-boost"]
+    ] = None
+
+    chosen_pest_control: Optional[
+        Literal["none", "integrated-pest-management", "chemical-pesticide", "biological-control"]
+    ] = None
+
+    chosen_strategy: Optional[
+        Literal["groundwater-conservation", "maximize-yield", "low-cost-farming", "soil-restoration"]
+    ] = None
 
 
-class AgricultureObservation(Observation):
-    """Observation from the Agriculture environment - current farm state."""
+# -----------------------------
+# Action Model
+# -----------------------------
+class AgricultureAction(BaseModel):
+    action: str
 
-    soil_type: str = Field(default="", description="Type of soil")
-    nitrogen: int = Field(default=0, description="Nitrogen level")
-    phosphorus: int = Field(default=0, description="Phosphorus level")
-    potassium: int = Field(default=0, description="Potassium level")
-    ph: float = Field(default=7.0, description="Soil pH")
-    rainfall: int = Field(default=0, description="Rainfall level")
-    temperature: int = Field(default=0, description="Temperature")
-    humidity: int = Field(default=0, description="Humidity percentage")
-    groundwater: int = Field(default=0, description="Groundwater level")
-    season: str = Field(default="", description="Current season")
 
-    chosen_crop: str = Field(default="", description="Crop chosen in the last step")
-    available_crops: list[str] = Field(default_factory=list, description="Available crop choices")
+# -----------------------------
+# Step Metadata
+# -----------------------------
+class AgricultureInfo(BaseModel):
+    current_decision: str
+    reward_breakdown: Dict[str, float]
+    score: float
+    success: bool
+    explanation: str
+
+
+# -----------------------------
+# Task Metadata
+# -----------------------------
+class AgricultureTaskConfig(BaseModel):
+    name: Literal[
+        "crop-selection-easy",
+        "farm-planning-medium",
+        "sustainable-farming-hard",
+    ]
+    max_steps: int
+    description: str
+    decision_sequence: List[str]
