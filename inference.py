@@ -135,15 +135,42 @@ def choose_action_random(state, rng: random.Random) -> str:
 # =========================================================
 def main():
     parser = argparse.ArgumentParser(description="OpenEnv Agriculture Inference Runner")
-    parser.add_argument("--task", type=str, required=True, choices=[
-        "crop-selection-easy",
-        "farm-planning-medium",
-        "sustainable-farming-hard",
-    ])
-    parser.add_argument("--policy", type=str, default="heuristic", choices=["heuristic", "random"])
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--model", type=str, default="heuristic-baseline")
-    parser.add_argument("--env", type=str, default="agriculture")
+    parser.add_argument(
+        "--task",
+        type=str,
+        default=os.getenv("TASK", "crop-selection-easy"),
+        choices=[
+            "crop-selection-easy",
+            "farm-planning-medium",
+            "sustainable-farming-hard",
+        ],
+        help="Task to run (can also be set via TASK env variable)",
+    )
+    parser.add_argument(
+        "--policy",
+        type=str,
+        default=os.getenv("POLICY", "heuristic"),
+        choices=["heuristic", "random"],
+        help="Policy to run (can also be set via POLICY env variable)",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=int(os.getenv("SEED", "42")),
+        help="Random seed for reproducibility",
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default=os.getenv("MODEL", "heuristic-baseline"),
+        help="Model name to report in logs (can also be set via MODEL env variable)",
+    )
+    parser.add_argument(
+        "--env",
+        type=str,
+        default=os.getenv("ENV", "agriculture"),
+        help="Environment name to report in logs (can also be set via ENV env variable)",
+    )
 
     args = parser.parse_args()
 
