@@ -117,12 +117,14 @@ class AgricultureEnvironment:
     # -----------------------------------------------------
     # Public API
     # -----------------------------------------------------
-    def reset(self, seed: Optional[int] = None, episode_id: Optional[str] = None):
+    def reset(self, seed: Optional[int] = None, episode_id: Optional[str] = None, **kwargs):
         if seed is not None:
             self.seed = seed
             self.rng.seed(seed)
 
         self._state = self._generate_initial_state()
+        self._state.episode_id = episode_id
+        self._state.step_count = 0
         return self._to_observation(self._state, reward=0.0, done=False, info=None)
 
 
@@ -135,9 +137,12 @@ class AgricultureEnvironment:
     def get_state(self):
         return self.state
 
-    def step(self, action):
+    def step(self, action, **kwargs):
         if self._state is None:
             raise RuntimeError("Environment not initialized. Call reset() first.")
+
+        if not isinstance(action, AgricultureAction):
+            action = AgricultureAction.model_validate(action)
 
         current_step = self._state.step_index
         decision_type = self.task_config.decision_sequence[current_step]
@@ -160,6 +165,8 @@ class AgricultureEnvironment:
             success=success,
             explanation=explanation,
         )
+
+        self._state.step_count += 1
 
         return self._to_observation(
             self._state,
@@ -737,10 +744,10 @@ class AgricultureEnvironment:
     
     
     async def reset_async(self, **kwargs):
-        return self.reset()
+        return self.reset(**kwargs)
 
-    async def step_async(self, action):
-        return self.step(action)
+    async def step_async(self, action, **kwargs):
+        return self.step(action, **kwargs)
 
     def close(self):
         pass

@@ -17,7 +17,15 @@ STDOUT FORMAT
 """
 
 import argparse
+import os
 import random
+
+API_BASE_URL = os.getenv("API_BASE_URL", "<your-active-endpoint>")
+MODEL_NAME = os.getenv("MODEL_NAME", "<your-active-model>")
+HF_TOKEN = os.getenv("HF_TOKEN")
+
+# Optional — if you use from_docker_image():
+LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
 
 from server.agriculture_environment import AgricultureEnvironment
 from models import AgricultureAction

@@ -31,15 +31,15 @@ from typing import Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 
 try:
-    from openenv.core.env_server.types import Action, Observation
+    from openenv.core.env_server.types import Action, Observation, State
 except ImportError:  # pragma: no cover
-    from pydantic import BaseModel as Action, BaseModel as Observation
+    from pydantic import BaseModel as Action, BaseModel as Observation, BaseModel as State
 
 
 # -----------------------------
 # Core Environment State
 # -----------------------------
-class AgricultureState(BaseModel):
+class AgricultureState(State):
     task: Literal[
         "crop-selection-easy",
         "farm-planning-medium",
