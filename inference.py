@@ -184,12 +184,14 @@ async def main() -> None:
     steps_taken = 0
     score = 0.0
     success = False
+    error_msg = None
 
     log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
 
     try:
         result = await env.reset_async()
         state = result
+        obs = result  # Initialize obs
 
         for step in range(1, MAX_STEPS + 1):
             if result.done:
@@ -223,16 +225,21 @@ async def main() -> None:
                 break
 
         # Calculate final score (normalized to [0,1])
-        if obs.info:
+        if obs and obs.info:
             score = obs.info.get('score', 0.0)
         else:
             score = 0.0
         score = min(max(score, 0.0), 1.0)  # clamp to [0, 1]
         success = score >= SUCCESS_SCORE_THRESHOLD
 
+    except Exception as e:
+        error_msg = str(e)
+        success = False
+        score = 0.0
+        print(f"[ERROR] {error_msg}", flush=True)  # Print error for debugging
     finally:
         try:
-            await env.close()
+            env.close()  # Remove await since close is synchronous
         except Exception as e:
             print(f"[DEBUG] env.close() error: {e}", flush=True)
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
