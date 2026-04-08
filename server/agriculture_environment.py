@@ -12,7 +12,7 @@ soil, nutrient, climate, and groundwater conditions to maximize reward.
 """
 
 import random
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 from models import (
     AgricultureAction,
@@ -117,16 +117,25 @@ class AgricultureEnvironment:
     # -----------------------------------------------------
     # Public API
     # -----------------------------------------------------
-    def reset(self) -> AgricultureObservation:
+    def reset(self, seed: Optional[int] = None, episode_id: Optional[str] = None):
+        if seed is not None:
+            self.seed = seed
+            self.rng.seed(seed)
+
         self._state = self._generate_initial_state()
-        return self._state
+        return self._to_observation(self._state, reward=0.0, done=False, info=None)
 
-    def state(self) -> AgricultureState:
+
+    @property
+    def state(self):
         if self._state is None:
-            raise RuntimeError("Environment not initialized. Call reset() first.")
+            self.reset()
         return self._state
 
-    def step(self, action: AgricultureAction) -> Tuple[AgricultureObservation, float, bool, AgricultureInfo]:
+    def get_state(self):
+        return self.state
+
+    def step(self, action):
         if self._state is None:
             raise RuntimeError("Environment not initialized. Call reset() first.")
 
@@ -134,12 +143,13 @@ class AgricultureEnvironment:
         decision_type = self.task_config.decision_sequence[current_step]
 
         reward, breakdown, explanation = self._apply_action(decision_type, action.action)
+
         self._state.step_index += 1
 
-        # state transition after each decision
         self._simulate_state_transition(decision_type)
 
         done = self._state.step_index >= self._state.max_steps
+
         final_score = self._compute_final_score() if done else reward
         success = final_score >= self._success_threshold() if done else False
 
@@ -151,7 +161,32 @@ class AgricultureEnvironment:
             explanation=explanation,
         )
 
-        return self._to_observation(self._state), round(reward, 4), done, info
+        return self._to_observation(
+            self._state,
+            reward=round(reward, 4),
+            done=done,
+            info=info
+        )
+    
+    def _to_observation(self, state, reward=0.0, done=False, info=None):
+        return AgricultureObservation(
+            task=state.task,
+            step_index=state.step_index,
+            max_steps=state.max_steps,
+            soil_type=state.soil_type,
+            nitrogen=state.nitrogen,
+            phosphorus=state.phosphorus,
+            potassium=state.potassium,
+            rainfall=state.rainfall,
+            temperature=state.temperature,
+            groundwater=state.groundwater,
+            pest_risk=state.pest_risk,
+            soil_health=state.soil_health,
+            season=state.season,
+            reward=reward,
+            done=done,
+            info=info.model_dump() if info is not None else None
+        )
 
     # -----------------------------------------------------
     # State Generation
@@ -699,5 +734,13 @@ class AgricultureEnvironment:
     def _clamp(x: float, low: float = 0.0, high: float = 1.0) -> float:
         return max(low, min(high, x))
     
-    def _to_observation(self, state: AgricultureState) -> AgricultureObservation:
-        return AgricultureObservation(**state.model_dump())
+    
+    
+    async def reset_async(self, **kwargs):
+        return self.reset()
+
+    async def step_async(self, action):
+        return self.step(action)
+
+    def close(self):
+        pass

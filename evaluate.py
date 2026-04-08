@@ -6,7 +6,8 @@ It is NOT constrained to the strict OpenEnv stdout format.
 """
 
 import argparse
-from collections import Counter, defaultdict
+import random
+from collections import Counter
 
 from server.agriculture_environment import AgricultureEnvironment, TASKS
 from models import AgricultureAction
@@ -16,7 +17,7 @@ from models import AgricultureAction
 # Policies
 # =========================================================
 def choose_action(env: AgricultureEnvironment, policy: str) -> str:
-    s = env.state()
+    s = env.state
     step_idx = s.step_index
     task = env.task_config
     decision_type = task.decision_sequence[step_idx]
@@ -48,7 +49,7 @@ def random_policy(decision_type: str, env: AgricultureEnvironment) -> str:
 
 
 def heuristic_policy(env: AgricultureEnvironment, decision_type: str) -> str:
-    s = env.state()
+    s = env.state
 
     if decision_type == "crop":
         candidates = ["rice", "wheat", "maize", "cotton", "millet", "sugarcane", "pulses"]
@@ -156,10 +157,13 @@ def run_episode(task_name: str, policy: str, seed: int):
         action_str = choose_action(env, policy)
         actions.append(action_str)
 
-        _, reward, done, info = env.step(AgricultureAction(action=action_str))
+        obs = env.step(AgricultureAction(action=action_str))
+        reward = obs.reward or 0.0
+        done = obs.done
+        info = obs.info or {}
         rewards.append(reward)
-        final_score = info.score
-        success = info.success
+        final_score = info.get('score', 0.0)
+        success = info.get('success', False)
 
     return {
         "rewards": rewards,

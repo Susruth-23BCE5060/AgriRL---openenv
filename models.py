@@ -30,6 +30,11 @@ The agriculture environment is a simple test environment that echoes back messag
 from typing import Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 
+try:
+    from openenv.core.env_server.types import Action, Observation
+except ImportError:  # pragma: no cover
+    from pydantic import BaseModel as Action, BaseModel as Observation
+
 
 # -----------------------------
 # Core Environment State
@@ -82,20 +87,33 @@ class AgricultureState(BaseModel):
 # -----------------------------
 # Observation Model
 # -----------------------------
-class AgricultureObservation(AgricultureState):
-    """
-    Observation returned to the agent.
+class AgricultureObservation(Observation):
+    task: str
+    step_index: int
+    max_steps: int
 
-    For this benchmark, observation mirrors the current environment state.
-    This keeps OpenEnv schema compatibility clean and explicit.
-    """
-    pass
+    soil_type: str
+    nitrogen: float
+    phosphorus: float
+    potassium: float
+
+    rainfall: float
+    temperature: float
+    groundwater: float
+
+    pest_risk: float
+    soil_health: float
+    season: str
+
+    reward: float
+    done: bool
+    info: Optional[dict]
 
 
 # -----------------------------
 # Action Model
 # -----------------------------
-class AgricultureAction(BaseModel):
+class AgricultureAction(Action):
     action: str
 
 

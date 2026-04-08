@@ -163,11 +163,14 @@ def main():
                 action_str = choose_action_random(state, rng)
 
             action = AgricultureAction(action=action_str)
-            next_state, reward, done, info = env.step(action)
+            obs = env.step(action)
+            reward = obs.reward or 0.0
+            done = obs.done
+            info = obs.info or {}
 
             rewards.append(reward)
-            final_score = info.score
-            success = info.success
+            final_score = info.get('score', 0.0)
+            success = info.get('success', False)
 
             print(
                 f"[STEP] step={step_num} "
@@ -177,7 +180,7 @@ def main():
                 f"error={error_msg}"
             )
 
-            state = next_state
+            state = obs
 
         except Exception as e:
             action_str = "invalid"

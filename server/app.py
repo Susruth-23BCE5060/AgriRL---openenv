@@ -23,8 +23,13 @@ except ModuleNotFoundError:
     from server.agriculture_environment import AgricultureEnvironment
 
 
+_shared_env = AgricultureEnvironment()
+
+def _env_factory():
+    return _shared_env
+
 app = create_app(
-    AgricultureEnvironment,
+    _env_factory,
     AgricultureAction,
     AgricultureObservation,
     env_name="agriculture",
