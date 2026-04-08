@@ -240,6 +240,12 @@ python inference.py --task crop-selection-easy --policy heuristic
 python inference.py --task farm-planning-medium --policy random --model random-baseline
 ```
 
+### LLM baseline
+
+```bash
+python inference.py --task sustainable-farming-hard --policy llm --model gpt-4o-mini
+```
+
 ---
 
 # Inference Script (Benchmark Mode)

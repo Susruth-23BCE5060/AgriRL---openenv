@@ -5,7 +5,7 @@ MANDATORY
 - Before submitting, ensure the following variables are defined in your environment configuration:
     API_BASE_URL   The API endpoint for the LLM.
     MODEL_NAME     The model identifier to use for inference.
-    HF_TOKEN       Your Hugging Face / API key.
+    API_KEY        Your API key (or HF_TOKEN as fallback).
     IMAGE_NAME     The name of the local image to use for the environment if using from_docker_image()
 
 STDOUT FORMAT
@@ -19,13 +19,23 @@ STDOUT FORMAT
 import argparse
 import os
 import random
+from openai import OpenAI
 
 API_BASE_URL = os.getenv("API_BASE_URL", "<your-active-endpoint>")
 MODEL_NAME = os.getenv("MODEL_NAME", "<your-active-model>")
-HF_TOKEN = os.getenv("HF_TOKEN")
+API_KEY = os.getenv("API_KEY", os.getenv("HF_TOKEN"))  # Fallback to HF_TOKEN if API_KEY not set
 
 # Optional — if you use from_docker_image():
 LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
+
+# Initialize OpenAI client with provided base_url and api_key
+if API_KEY:
+    client = OpenAI(
+        base_url=API_BASE_URL,
+        api_key=API_KEY,
+    )
+else:
+    client = None
 
 from server.agriculture_environment import AgricultureEnvironment
 from models import AgricultureAction
@@ -131,6 +141,131 @@ def choose_action_random(state, rng: random.Random) -> str:
 
 
 # =========================================================
+# LLM-Based Policy
+# =========================================================
+def choose_action_llm(state) -> str:
+    task = state.task
+    step = state.step_index
+
+    decision_sequence = {
+        "crop-selection-easy": ["crop"],
+        "farm-planning-medium": ["crop", "irrigation", "fertilizer"],
+        "sustainable-farming-hard": ["crop", "irrigation", "fertilizer", "pest_control", "strategy"],
+    }
+
+    decision_type = decision_sequence[task][step]
+
+    # Build prompt based on decision type
+    if decision_type == "crop":
+        options = CROPS
+        prompt = f"""
+You are an agricultural expert. Based on the following farm conditions, recommend the best crop to plant:
+
+Farm State:
+- Soil Type: {state.soil_type}
+- Nitrogen Level: {state.nitrogen}
+- Phosphorus Level: {state.phosphorus}
+- Potassium Level: {state.potassium}
+- Rainfall: {state.rainfall}
+- Temperature: {state.temperature}
+- Groundwater: {state.groundwater}
+- Pest Risk: {state.pest_risk}
+- Soil Health: {state.soil_health}
+- Season: {state.season}
+
+Available crops: {', '.join(CROPS)}
+
+Respond with only the crop name, nothing else.
+"""
+    elif decision_type == "irrigation":
+        options = IRRIGATION
+        prompt = f"""
+You are an agricultural expert. The farmer has chosen {state.chosen_crop} as the crop. Based on the farm conditions, recommend the best irrigation method:
+
+Farm State:
+- Chosen Crop: {state.chosen_crop}
+- Soil Type: {state.soil_type}
+- Rainfall: {state.rainfall}
+- Groundwater: {state.groundwater}
+- Pest Risk: {state.pest_risk}
+- Soil Health: {state.soil_health}
+
+Available irrigation methods: {', '.join(IRRIGATION)}
+
+Respond with only the irrigation method name, nothing else.
+"""
+    elif decision_type == "fertilizer":
+        options = FERTILIZERS
+        prompt = f"""
+You are an agricultural expert. The farmer has chosen {state.chosen_crop} as the crop and {state.chosen_irrigation} as irrigation. Recommend the best fertilizer:
+
+Farm State:
+- Chosen Crop: {state.chosen_crop}
+- Chosen Irrigation: {state.chosen_irrigation}
+- Soil Type: {state.soil_type}
+- Nitrogen Level: {state.nitrogen}
+- Phosphorus Level: {state.phosphorus}
+- Potassium Level: {state.potassium}
+- Soil Health: {state.soil_health}
+
+Available fertilizers: {', '.join(FERTILIZERS)}
+
+Respond with only the fertilizer name, nothing else.
+"""
+    elif decision_type == "pest_control":
+        options = PEST_CONTROL
+        prompt = f"""
+You are an agricultural expert. Recommend the best pest control method:
+
+Farm State:
+- Pest Risk: {state.pest_risk}
+- Soil Health: {state.soil_health}
+
+Available pest control methods: {', '.join(PEST_CONTROL)}
+
+Respond with only the pest control method name, nothing else.
+"""
+    elif decision_type == "strategy":
+        options = STRATEGIES
+        prompt = f"""
+You are an agricultural expert. Recommend the best long-term farming strategy:
+
+Farm State:
+- Groundwater: {state.groundwater}
+- Soil Health: {state.soil_health}
+
+Available strategies: {', '.join(STRATEGIES)}
+
+Respond with only the strategy name, nothing else.
+"""
+    else:
+        return "maize"
+
+    try:
+        if client is None:
+            raise Exception("OpenAI client not initialized")
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": "You are an expert agricultural advisor."},
+                {"role": "user", "content": prompt.strip()},
+            ],
+            max_tokens=50,
+            temperature=0.1,
+        )
+        action = response.choices[0].message.content.strip()
+        # Validate that the action is in options
+        if action in options:
+            return action
+        else:
+            # Fallback to random if invalid
+            return random.choice(options)
+    except Exception as e:
+        # Fallback to random on error
+        return random.choice(options)
+
+
+# =========================================================
 # Main OpenEnv Runner
 # =========================================================
 def main():
@@ -150,7 +285,7 @@ def main():
         "--policy",
         type=str,
         default=os.getenv("POLICY", "heuristic"),
-        choices=["heuristic", "random"],
+        choices=["heuristic", "random", "llm"],
         help="Policy to run (can also be set via POLICY env variable)",
     )
     parser.add_argument(
@@ -194,8 +329,12 @@ def main():
         try:
             if args.policy == "heuristic":
                 action_str = choose_action_heuristic(state)
-            else:
+            elif args.policy == "random":
                 action_str = choose_action_random(state, rng)
+            elif args.policy == "llm":
+                action_str = choose_action_llm(state)
+            else:
+                action_str = choose_action_heuristic(state)
 
             action = AgricultureAction(action=action_str)
             obs = env.step(action)
